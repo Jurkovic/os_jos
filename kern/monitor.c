@@ -46,7 +46,7 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 
 	cprintf("Special kernel symbols:\n");
 	cprintf("  _start                  %08x (phys)\n", _start);
-	cprintf("  entry  %08x (virt)  %08x (phys)\n", entry, entry - KERNBASE);
+cprintf("  entry  %08x (virt)  %08x (phys)\n", entry, entry - KERNBASE);
 	cprintf("  etext  %08x (virt)  %08x (phys)\n", etext, etext - KERNBASE);
 	cprintf("  edata  %08x (virt)  %08x (phys)\n", edata, edata - KERNBASE);
 	cprintf("  end    %08x (virt)  %08x (phys)\n", end, end - KERNBASE);
@@ -61,7 +61,11 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 	// Your code here.
 	unsigned int ebp = read_ebp();
 
-	cprintf("ebp %x\n", &ebp);
+	while (ebp != 0) {
+		eip = *(ebp+4);
+		cprintf("ebp %08x, eip %08x args: %08x %08x %08x %08x\n", ebp, eip, (ebp+8), (ebp+12), (ebp+16), (ebp+20));
+		ebp = *((unsigned int*)ebp);
+	}
 	return 0;
 }
 
