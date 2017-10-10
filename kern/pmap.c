@@ -102,8 +102,9 @@ boot_alloc(uint32_t n)
 	// to a multiple of PGSIZE.
 	//
 	// LAB 2: Your code here.
-
-	return NULL;
+	result = nextfree;
+	nextfree += ROUNDUP(n,PGSIZE);
+	return result;
 }
 
 // Set up a two-level page table:
@@ -123,9 +124,6 @@ mem_init(void)
 
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
-
-	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
@@ -148,7 +146,9 @@ mem_init(void)
 	// array.  'npages' is the number of physical pages in memory.  Use memset
 	// to initialize all fields of each struct PageInfo to 0.
 	// Your code goes here:
-
+	n = npages * sizeof(struct PageInfo);
+	pages = (struct PageInfo*) boot_alloc(n);
+	memset(pages, 0, n);
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -252,11 +252,16 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 	size_t i;
-	for (i = 0; i < npages; i++) {
+	pages[0].pp_ref = 1; //nastavenie nultej stranky ako pouzitej
+
+	for (i = 1; i < npages; i++) {
+		if(page2pa(&pages[i]) >= IOPHYSMEM && page2pa(&pages[i]) < PADDR(boot_alloc(0))) 
+			continue;
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
 	}
+	
 }
 
 //
@@ -275,7 +280,15 @@ struct PageInfo *
 page_alloc(int alloc_flags)
 {
 	// Fill this function in
-	return 0;
+	struct PageInfo* page = NULL;
+	if(page_free_list != NULL) {
+		page = page_free_list;
+		page_free_list = page_free_list->pp_link;
+		page->pp_link = NULL;
+		if(alloc_flags & ALLOC_ZERO)
+			memset(page2kva(page),0,PGSIZE);
+	}
+	return page;
 }
 
 //
@@ -288,6 +301,10 @@ page_free(struct PageInfo *pp)
 	// Fill this function in
 	// Hint: You may want to panic if pp->pp_ref is nonzero or
 	// pp->pp_link is not NULL.
+	if(pp->pp_ref != 0 || pp->pp_link != NULL)
+		panic("page_free: Stranka sa stale pouziva!");
+	pp->pp_link = page_free_list;
+	page_free_list = pp;	
 }
 
 //
