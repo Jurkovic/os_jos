@@ -103,7 +103,15 @@ boot_alloc(uint32_t n)
 	//
 	// LAB 2: Your code here.
 	result = nextfree;
-	nextfree += ROUNDUP(n,PGSIZE);
+	if(n == 0) 
+		return result;
+	else if(n > 0) {
+		if(PADDR(nextfree + ROUNDUP(n,PGSIZE)) < 0x00400000)  {
+			nextfree += ROUNDUP(n,PGSIZE);
+		}
+		else panic("boot_alloc: Nedostatok pamate");
+	}
+	
 	return result;
 }
 
@@ -344,7 +352,18 @@ pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
-	return NULL;
+	pde_t *pde = &(pgdir[PDX(va)]); //Riadok v tabulke 1. urovne
+	if(*pde & PTE_P == 0) { //Ak je pte v pamati
+		struct PageInfo* pp; //nova alokovana stranka
+		pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
+		pp->pp_ref++;
+		 
+		
+	}
+
+	pte_t pte = (pte_t*)KADDR(PTE_ADDR(*pte)); //Adresa tabulky 2. urovne
+	pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
+	return pte;
 }
 
 //
