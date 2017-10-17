@@ -180,6 +180,8 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
+	n = ROUNDUP(n, PGSIZE);
+	boot_map_region(kern_pgdir, UPAGES,n,PADDR(pages),PTE_U | PTE_P);
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -192,6 +194,8 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_P | PTE_W);
+	
 
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
@@ -199,8 +203,10 @@ mem_init(void)
 	//      the PA range [0, 2^32 - KERNBASE)
 	// We might not have 2^32 - KERNBASE bytes of physical memory, but
 	// we just set up the mapping anyway.
-	// Permissions: kernel RW, user NONE
+	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
+	n = (uint32_t)(-1) - KERNBASE + 1;
+	boot_map_region(kern_pgdir, KERNBASE,n,0, PTE_P | PTE_W);	
 
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
@@ -353,16 +359,22 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
 	pde_t *pde = &(pgdir[PDX(va)]); //Riadok v tabulke 1. urovne
-	if(*pde & PTE_P == 0) { //Ak je pte v pamati
+	pte_t *pte = NULL;
+	if(*pde & PTE_P) { //Ak je pte v pamati	
+		pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Adresa tabulky 2. urovne
+		pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
+	}
+	else if(create){	
 		struct PageInfo* pp; //nova alokovana stranka
 		pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
+		if(pp == NULL)
+			return NULL;
 		pp->pp_ref++;
-		 
-		
+		*pde = page2pa(pp) | PTE_P | PTE_W | PTE_U; //Nastavenie priznakov
+		pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Tab 2 adresa
+		pte = &(pte[PTX(va)]); //Riadok tab 2
 	}
 
-	pte_t pte = (pte_t*)KADDR(PTE_ADDR(*pte)); //Adresa tabulky 2. urovne
-	pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
 	return pte;
 }
 
@@ -381,6 +393,11 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
+	pte_t *pte;
+	for(int i = 0; i < size; i += PGSIZE) {
+		pte = pgdir_walk(pgdir,(void*)(va+i), 1); //najdi adresu pte ak neexistuje vytvor
+		*pte = (pa+i) | perm | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+	}
 }
 
 //
@@ -412,6 +429,16 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
+	pte_t *pte = pgdir_walk(pgdir, va, 1);
+	if(pte == NULL) {	//vsetky volne stranky su zabrate
+		return -E_NO_MEM; //free_page_list je NULL
+	}
+	pp->pp_ref++; //inkrementovanie referencii
+	if(*pte & PTE_P) { //ak je stranka uz namapovana
+		page_remove(pgdir,va); //odstranenie stranky
+	}
+	*pte = page2pa(pp) | perm | PTE_P; 
+	 
 	return 0;
 }
 
@@ -430,7 +457,15 @@ struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	return NULL;
+	pte_t *pte = pgdir_walk(pgdir, va, 1); //zistenie adresy stranky
+	struct PageInfo *pp = NULL;
+	if(pte_store) { 
+		*pte_store = pte; //pridaj adresu stranky do pte_store
+	}
+	if(pte != NULL && *pte & PTE_P) {
+		pp = pa2page(PTE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu		
+	}
+	return pp;
 }
 
 //
@@ -452,6 +487,15 @@ void
 page_remove(pde_t *pgdir, void *va)
 {
 	// Fill this function in
+	pte_t *pte_store;
+	struct PageInfo *pp = page_lookup(pgdir, va, &pte_store);
+	if(pp == NULL) 
+		return;
+	
+	*pte_store = (pte_t) 0; //vynulovanie v tab 1. urovne
+	page_decref(pp); //znizenie ref count a free ak treba
+	tlb_invalidate(pgdir,va); 
+	
 }
 
 //
