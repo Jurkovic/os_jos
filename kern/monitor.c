@@ -25,6 +25,7 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+	{ "backtrace", "Display stack trace", mon_backtrace},
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -46,7 +47,7 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 
 	cprintf("Special kernel symbols:\n");
 	cprintf("  _start                  %08x (phys)\n", _start);
-	cprintf("  entry  %08x (virt)  %08x (phys)\n", entry, entry - KERNBASE);
+cprintf("  entry  %08x (virt)  %08x (phys)\n", entry, entry - KERNBASE);
 	cprintf("  etext  %08x (virt)  %08x (phys)\n", etext, etext - KERNBASE);
 	cprintf("  edata  %08x (virt)  %08x (phys)\n", edata, edata - KERNBASE);
 	cprintf("  end    %08x (virt)  %08x (phys)\n", end, end - KERNBASE);
@@ -59,6 +60,25 @@ int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
 	// Your code here.
+	unsigned int ebp = read_ebp(); 
+	unsigned int eip, arg1, arg2, arg3, arg4, arg5;
+
+	struct Eipdebuginfo info;
+
+	cprintf("Stack backtrace:\n");
+	while (ebp != 0) {
+		eip = *((unsigned int*)(ebp+4));
+		debuginfo_eip(eip, &info);
+		
+		arg1 = *((unsigned int*)(ebp+8));
+		arg2 = *((unsigned int*)(ebp+12));
+		arg3 = *((unsigned int*)(ebp+16));
+		arg4 = *((unsigned int*)(ebp+20));
+		arg5 = *((unsigned int*)(ebp+24)); 
+		cprintf("  ebp %08x  eip %08x  args %08x %08x %08x %08x %08x\n", ebp, eip, arg1, arg2, arg3, arg4, arg5);
+		cprintf("         %s:%d: %.*s+%d\n",info.eip_file,info.eip_line,info.eip_fn_namelen,info.eip_fn_name,eip - info.eip_fn_addr); 
+		ebp = *((unsigned int*)ebp);
+	}
 	return 0;
 }
 
