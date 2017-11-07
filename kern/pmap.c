@@ -162,6 +162,9 @@ mem_init(void)
 	//////////////////////////////////////////////////////////////////////
 	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
 	// LAB 3: Your code here.
+	n = NENV * sizeof(struct Env);
+	envs = (struct Env*) boot_alloc(n);
+	memset(envs, 0,n);	
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -185,8 +188,7 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
-	n = ROUNDUP(n, PGSIZE);
-	boot_map_region(kern_pgdir, UPAGES,n,PADDR(pages),PTE_U | PTE_P);
+	boot_map_region(kern_pgdir, UPAGES,PTSIZE,PADDR(pages),PTE_U | PTE_P);
 
 	//////////////////////////////////////////////////////////////////////
 	// Map the 'envs' array read-only by the user at linear address UENVS
@@ -195,6 +197,8 @@ mem_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
+
+	boot_map_region(kern_pgdir, UENVS, PTSIZE, PADDR(envs), PTE_U | PTE_P);
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -218,7 +222,7 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
-	n = (uint32_t)(-1) - KERNBASE + 1;
+	n = (2ULL << 31) - KERNBASE; 
 	boot_map_region(kern_pgdir, KERNBASE,n,0, PTE_P | PTE_W);	
 
 	// Check that the initial page directory has been set up correctly.
@@ -470,7 +474,7 @@ struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	pte_t *pte = pgdir_walk(pgdir, va, 1); //zistenie adresy stranky
+	pte_t *pte = pgdir_walk(pgdir, va, 0); //zistenie adresy stranky
 	struct PageInfo *pp = NULL;
 	if(pte_store) { 
 		*pte_store = pte; //pridaj adresu stranky do pte_store
@@ -547,6 +551,22 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
+
+	uintptr_t start = (uintptr_t)ROUNDDOWN(va,PGSIZE);
+	uintptr_t end = (uintptr_t)ROUNDUP(va+len+1, PGSIZE);
+
+	pte_t* store;
+	for(;start < end; start += PGSIZE) {	
+        	if(start >= ULIM) {
+			user_mem_check_addr = start;
+                	return -E_FAULT;
+	        }
+		store = pgdir_walk(env->env_pgdir, (void*)start,0);	
+		if(!(*store & (perm | PTE_P))) {
+			user_mem_check_addr = start < (uintptr_t)va ? (uintptr_t)va : start; 
+			return -E_FAULT;
+		}
+	}
 
 	return 0;
 }
