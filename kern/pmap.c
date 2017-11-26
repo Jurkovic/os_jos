@@ -277,7 +277,12 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+	int i;
+	uint32_t kstacktop_i;
+	for(i = 0; i < NCPU; i++) {
+		kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);		
+		boot_map_region(kern_pgdir, kstacktop_i - KSTKSIZE, ROUNDUP(KSTKSIZE,PGSIZE),PADDR(percpu_kstacks[i]), PTE_P | PTE_W);
+	}
 }
 
 // --------------------------------------------------------------
@@ -320,8 +325,14 @@ page_init(void)
 	pages[0].pp_ref = 1; //nastavenie nultej stranky ako pouzitej
 
 	for (i = 1; i < npages; i++) {
-		if(page2pa(&pages[i]) >= IOPHYSMEM && page2pa(&pages[i]) < PADDR(boot_alloc(0))) 
+
+		if(page2pa(&pages[i]) >= IOPHYSMEM &&  page2pa(&pages[i]) < PADDR(boot_alloc(0))) {
 			continue;
+		}
+		if(page2pa(&pages[i]) == MPENTRY_PADDR) {
+			pages[i].pp_ref = 1;
+			continue;
+		}
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
@@ -559,7 +570,7 @@ tlb_invalidate(pde_t *pgdir, void *va)
 	// Flush the entry only if we're modifying the current address space.
 	if (!curenv || curenv->env_pgdir == pgdir)
 		invlpg(va);
-}
+	}
 
 //
 // Reserve size bytes in the MMIO region and map [pa,pa+size) at this
@@ -593,7 +604,17 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	size = ROUNDUP(size,PGSIZE);
+	void* retVal = (void*)base;
+	if(size+base > MMIOLIM) {
+		panic("mmio_map_region: Velkost presahuje MMIOLIM!");
+	}
+	
+	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD|PTE_PWT|PTE_W);
+
+	base += (uintptr_t)size;
+
+	return retVal;
 }
 
 static uintptr_t user_mem_check_addr;

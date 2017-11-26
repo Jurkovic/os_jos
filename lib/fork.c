@@ -25,6 +25,7 @@ pgfault(struct UTrapframe *utf)
 	//   (see <inc/memlayout.h>).
 
 	// LAB 4: Your code here.
+	
 
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new
@@ -54,7 +55,12 @@ duppage(envid_t envid, unsigned pn)
 	int r;
 
 	// LAB 4: Your code here.
-	panic("duppage not implemented");
+	r = sys_page_alloc(envid, (void*) (UXSTACKTOP - pn), PTE_P | PTE_U | PTE_COW);
+	if(r < 0) {
+		panic("duppage: chyba %e", r);
+	}
+	
+	
 	return 0;
 }
 
@@ -78,7 +84,30 @@ envid_t
 fork(void)
 {
 	// LAB 4: Your code here.
-	panic("fork not implemented");
+	set_pgfault_handler(pgfault);
+	envid_t id;
+
+	id = sys_exofork();	
+	if(id < 0) {
+		panic("fork: niekde nastala chyba %e", id);
+		return id;
+	}
+	if(id == 0) {
+		thisenv = &envs[ENVX(sys_getenvid())];
+		return 0;
+	}
+	
+	uintptr_t va;
+	uint32_t addr, end;
+	end = USTACKTOP;
+	for(addr = UTEXT; addr < end; addr += PGSIZE) {
+		va = KADDR(adddr);
+		pde_t pde = uvpd[PDX(va)];
+		if(uvpd[PDX(va)] && uvpt[PGNUM(va)]) {
+			dupage(id, PGNUM(va));
+		}
+	}
+	
 }
 
 // Challenge!

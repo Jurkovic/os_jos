@@ -67,14 +67,14 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 
 	cprintf("Stack backtrace:\n");
 	while (ebp != 0) {
-		eip = *((unsigned int*)(ebp+4));
+		eip = *((unsigned int*)(ebp+1));
 		debuginfo_eip(eip, &info);
 		
-		arg1 = *((unsigned int*)(ebp+8));
-		arg2 = *((unsigned int*)(ebp+12));
-		arg3 = *((unsigned int*)(ebp+16));
-		arg4 = *((unsigned int*)(ebp+20));
-		arg5 = *((unsigned int*)(ebp+24)); 
+		arg1 = *((unsigned int*)(ebp+2));
+		arg2 = *((unsigned int*)(ebp+3));
+		arg3 = *((unsigned int*)(ebp+4));
+		arg4 = *((unsigned int*)(ebp+5));
+		arg5 = *((unsigned int*)(ebp+6)); 
 		cprintf("  ebp %08x  eip %08x  args %08x %08x %08x %08x %08x\n", ebp, eip, arg1, arg2, arg3, arg4, arg5);
 		cprintf("         %s:%d: %.*s+%d\n",info.eip_file,info.eip_line,info.eip_fn_namelen,info.eip_fn_name,eip - info.eip_fn_addr); 
 		ebp = *((unsigned int*)ebp);
