@@ -325,12 +325,12 @@ page_init(void)
 	pages[0].pp_ref = 1; //nastavenie nultej stranky ako pouzitej
 
 	for (i = 1; i < npages; i++) {
-
-		if(page2pa(&pages[i]) >= IOPHYSMEM &&  page2pa(&pages[i]) < PADDR(boot_alloc(0))) {
-			continue;
-		}
+				
 		if(page2pa(&pages[i]) == MPENTRY_PADDR) {
 			pages[i].pp_ref = 1;
+			continue;
+		}
+		if(page2pa(&pages[i]) >= IOPHYSMEM && page2pa(&pages[i]) < PADDR(boot_alloc(0))) {
 			continue;
 		}
 		pages[i].pp_ref = 0;

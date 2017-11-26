@@ -55,6 +55,7 @@ duppage(envid_t envid, unsigned pn)
 	int r;
 
 	// LAB 4: Your code here.
+	panic("not implemented");
 	r = sys_page_alloc(envid, (void*) (UXSTACKTOP - pn), PTE_P | PTE_U | PTE_COW);
 	if(r < 0) {
 		panic("duppage: chyba %e", r);
@@ -84,7 +85,8 @@ envid_t
 fork(void)
 {
 	// LAB 4: Your code here.
-	set_pgfault_handler(pgfault);
+	panic("not implemented");
+/*	set_pgfault_handler(pgfault);
 	envid_t id;
 
 	id = sys_exofork();	
@@ -106,7 +108,7 @@ fork(void)
 		if(uvpd[PDX(va)] && uvpt[PGNUM(va)]) {
 			dupage(id, PGNUM(va));
 		}
-	}
+	}*/
 	
 }
 
