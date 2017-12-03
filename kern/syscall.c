@@ -22,7 +22,8 @@ sys_cputs(const char *s, size_t len)
 	// Destroy the environment if not.
 
 	// LAB 3: Your code here.
-	user_mem_assert(curenv, (void*)s, len, PTE_U);
+	user_mem_assert(curenv, s, len, PTE_U);
+	
 
 	// Print the string supplied by the user.
 	cprintf("%.*s", len, s);
@@ -189,7 +190,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	if(r < 0) {
 		return r; //-E_BAD_ENV
 	}
-	if((uint32_t)va >= UTOP && (uint32_t)va % PGSIZE != 0) {
+	if((uint32_t)va >= UTOP || (uint32_t)va % PGSIZE != 0) {
 		return -E_INVAL;
 	} 
 	if((perm & PTE_P) != PTE_P) {
@@ -242,30 +243,30 @@ sys_page_map(envid_t srcenvid, void *srcva,
 	//   check the current permissions on the page.
 
 	// LAB 4: Your code here.
-        struct Env *srce, *dste;
+    struct Env *srce, *dste;
 	struct PageInfo *p;
-        int r;
+    int r;
 
-        r = envid2env(srcenvid, &srce, 1);
+    r = envid2env(srcenvid, &srce, 1);
 	if(r < 0) {
 		return r; //-E_BAD_ENV
 	}
 	r = envid2env(dstenvid, &dste, 1); 
-        if(r < 0) {
-                return r; //-E_BAD_ENV
-        }
-        if(((uint32_t)srcva >= UTOP && (uint32_t)srcva % PGSIZE != 0) || ((uint32_t)dstva >= UTOP && (uint32_t)dstva % PGSIZE != 0)) {
-                return -E_INVAL;
-        }
+    if(r < 0) {
+     	return r; //-E_BAD_ENV
+    }
+    if(((uint32_t)srcva >= UTOP || (uint32_t)srcva % PGSIZE != 0) || ((uint32_t)dstva >= UTOP || (uint32_t)dstva % PGSIZE != 0)) {
+        return -E_INVAL;
+    }
 	if((perm & PTE_P) != PTE_P) {
-                return -E_INVAL;
-        }
-        if((perm & PTE_U) != PTE_U) {
-                return -E_INVAL;
-        }
-        if((perm & ~PTE_SYSCALL) != 0) {
-                return -E_INVAL;
-        }
+        return -E_INVAL;
+    }
+    if((perm & PTE_U) != PTE_U) {
+        return -E_INVAL;
+    }
+    if((perm & ~PTE_SYSCALL) != 0) {
+        return -E_INVAL;
+    }
 	
 	pte_t *pte_src;
 	
@@ -302,7 +303,7 @@ sys_page_unmap(envid_t envid, void *va)
 	if(r < 0) {
 		return r;
 	}
-	if((uint32_t)va >= UTOP || (uint32_t)va % PGSIZE) {
+	if((uint32_t)va >= UTOP || (uint32_t)va % PGSIZE != 0) {
 		return -E_INVAL;
 	}
 	page_remove(e->env_pgdir, va);
@@ -352,7 +353,51 @@ static int
 sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 {
 	// LAB 4: Your code here.
-	panic("sys_ipc_try_send not implemented");
+	//panic("sys_ipc_try_send not implemented");
+	struct Env* dste;
+	int r;
+
+	r = envid2env(envid, &dste, 0); 
+	if(r < 0)
+		return r;
+
+	if(dste->env_ipc_recving != 1)
+		return -E_IPC_NOT_RECV;
+
+
+	dste->env_ipc_perm = 0;
+	if((uint32_t)srcva < UTOP) {
+		if((uint32_t)srcva % PGSIZE != 0) {
+			cprintf("sys_ipc_try_send: Zle src adresa\n");
+			return -E_INVAL;
+		}
+
+		if(!(perm & PTE_U) && !(perm & PTE_P) && (perm & ~PTE_SYSCALL)) {
+			cprintf("sys_ipc_try_send: Zle povolenia\n");
+			return -E_INVAL;
+		}
+
+		if((uint32_t)dste->env_ipc_dstva < UTOP) {
+		
+			struct PageInfo *p = page_lookup(curenv->env_pgdir, srcva, 0);
+			if(p == NULL)
+				return -E_INVAL;
+			r = page_insert(dste->env_pgdir, p, dste->env_ipc_dstva, perm);
+			if(r < 0) {
+				cprintf("sys_ipc_try_send: Nepodarilo sa namapovat.\n");
+			}
+
+			dste->env_ipc_perm = perm;
+		}
+	}
+
+	dste->env_ipc_recving = 0;
+	dste->env_ipc_from = curenv->env_id;
+	dste->env_ipc_value = value;
+	dste->env_status = ENV_RUNNABLE;
+	dste->env_tf.tf_regs.reg_eax = 0;
+
+	return 0;
 }
 
 // Block until a value is ready.  Record that you want to receive
@@ -370,7 +415,24 @@ static int
 sys_ipc_recv(void *dstva)
 {
 	// LAB 4: Your code here.
-	panic("sys_ipc_recv not implemented");
+	//panic("sys_ipc_recv not implemented");
+
+	if((uint32_t)dstva < UTOP) {
+		//dstva nieje zarovnane na velkost stranky
+		if((uint32_t)dstva % PGSIZE != 0) {
+			return -E_INVAL;
+		}
+		//Ak už na tejto adrese prijímateľ nejaké mapovanie má, tak toto sa najprv odmapuje. 
+		//sys_page_unmap()
+		//sys_page_alloc(curenv->env_id, dstva, PTE_P | PTE_U | PTE_W);
+	}
+	curenv->env_ipc_recving = 1;
+	curenv->env_ipc_dstva = dstva;
+	sys_env_set_status(curenv->env_id, ENV_NOT_RUNNABLE);
+	curenv->env_ipc_perm = 0;
+
+	sys_yield();
+
 	return 0;
 }
 
@@ -384,7 +446,7 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 
 	switch (syscallno) {
 	case SYS_cputs: 
-		sys_cputs((const char*)a1, a2);
+		sys_cputs((char*)a1, a2);
 		return 0;
 	case SYS_cgetc: 
 		return sys_cgetc();
@@ -406,14 +468,11 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	case SYS_env_set_status:
                 return sys_env_set_status(a1,(int)a2);
 	case SYS_env_set_pgfault_upcall:
-                
-                return 0;
-	case SYS_ipc_try_send:
-                
-                return 0;
+                return (int32_t)sys_env_set_pgfault_upcall((envid_t)a1,(void*)a2);
+	case SYS_ipc_try_send:                
+                return sys_ipc_try_send((envid_t) a1, a2, (void *)a3, (unsigned) a4);
 	case SYS_ipc_recv:
-                
-                return 0;
+                return sys_ipc_recv((void*)a1);
 	default:
 		return -E_INVAL;
 	}
