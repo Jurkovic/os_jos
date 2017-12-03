@@ -119,7 +119,17 @@ env_init(void)
 {
 	// Set up envs array
 	// LAB 3: Your code here.
-
+	//VKLADANIE OD ZADU ABY SA ZACHOVALO PORADIE
+	for(int32_t i = NENV; i >= 0; i--) {	
+		envs[i].env_id = 0;
+		envs[i].env_parent_id = 0;		
+		envs[i].env_type = ENV_TYPE_USER;
+		envs[i].env_status = ENV_FREE;
+		envs[i].env_runs = 0;
+		envs[i].env_pgdir = NULL;
+		envs[i].env_link = env_free_list;	
+		env_free_list = &envs[i];
+	}
 	// Per-CPU part of the initialization
 	env_init_percpu();
 }
@@ -182,7 +192,11 @@ env_setup_vm(struct Env *e)
 	//    - The functions in kern/pmap.h are handy.
 
 	// LAB 3: Your code here.
-
+	p->pp_ref++;
+	e->env_pgdir = page2kva(p);
+	
+	memcpy(e->env_pgdir, kern_pgdir, PGSIZE);	
+	
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
 	e->env_pgdir[PDX(UVPT)] = PADDR(e->env_pgdir) | PTE_P | PTE_U;
@@ -247,6 +261,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Enable interrupts while in user mode.
 	// LAB 4: Your code here.
+	e->env_tf.tf_eflags |= FL_IF;	
 
 	// Clear the page fault handler until user installs one.
 	e->env_pgfault_upcall = 0;
@@ -279,6 +294,22 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	va = ROUNDDOWN(va,PGSIZE);
+	len = ROUNDUP(len,PGSIZE); 
+	
+	struct PageInfo* page;
+	for(; len; len -= PGSIZE) {
+		page = page_alloc(0); //nerobit nic s novou strankou
+		if(page == NULL) {
+			panic("region_alloc error %e", -E_NO_MEM);
+		}
+		if(page_insert(e->env_pgdir, page, va, PTE_W | PTE_P | PTE_U) < 0) {
+			panic("region_alloc: chyba neda sa vlozit stranka");
+		} 
+		va+=PGSIZE;
+
+	}	
+	
 }
 
 //
@@ -335,11 +366,44 @@ load_icode(struct Env *e, uint8_t *binary)
 	//  What?  (See env_run() and env_pop_tf() below.)
 
 	// LAB 3: Your code here.
+	struct Proghdr *ph,*eph;
+	struct Elf* elf = (struct Elf*)binary;
+	
+	// is this a valid ELF?
+        if (elf->e_magic != ELF_MAGIC)
+                panic("load_icode: nepodarilo sa nacitat validny elf subor");
 
+        // load each program segment (ignores ph flags)
+        ph = (struct Proghdr *) ((uint8_t*)elf + elf->e_phoff);
+        eph = ph + elf->e_phnum;
+		
+	lcr3(PADDR(e->env_pgdir)); //register cr3 obsahuje fyzicku adresu aktualneho pgdir
+
+        for (; ph < eph; ph++) {
+		if(ph->p_type == ELF_PROG_LOAD) {
+			if(ph->p_filesz > ph->p_memsz) {
+				panic("load_icode: Chyba .data je vacsia ako pamat segmentu");
+			}
+			region_alloc(e, (void*)ph->p_va, ph->p_memsz);
+
+			memset((void*)ph->p_va, 0, ph->p_memsz); //vynulovanie zvysnej pamate
+
+			memcpy((void*)ph->p_va, (void*)(binary + ph->p_offset), ph->p_filesz);			
+		}
+	}
+	
+	e->env_tf.tf_eip = elf->e_entry; //entry adresa programu
+	
+	
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
 
 	// LAB 3: Your code here.
+	
+	region_alloc(e, (void*)(USTACKTOP-PGSIZE),PGSIZE);
+
+	lcr3(PADDR(kern_pgdir));
+	
 }
 
 //
@@ -352,10 +416,20 @@ load_icode(struct Env *e, uint8_t *binary)
 void
 env_create(uint8_t *binary, enum EnvType type)
 {
-	// LAB 3: Your code here.
-
 	// If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
 	// LAB 5: Your code here.
+	
+	
+	// LAB 3: Your code here.
+	struct Env *e;
+	int error;
+
+	error = env_alloc(&e,0);
+	if(error != 0)
+		panic("env_create: nepodarilo sa vytvorit nove prostredie %e", error);
+	
+	load_icode(e, binary);
+	e->env_type = type;	
 }
 
 //
@@ -486,7 +560,20 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
+	if(curenv != e) {
+		if(curenv != NULL) {
+			if(curenv->env_status == ENV_RUNNING) {
+				curenv->env_status = ENV_RUNNABLE;
+			}
+		}		
+		curenv = e;
+		curenv->env_status = ENV_RUNNING;
+		curenv->env_runs++;	
+	}
+	lcr3(PADDR(curenv->env_pgdir));
+	unlock_kernel();
+	env_pop_tf(&curenv->env_tf);
+	
 
-	panic("env_run not yet implemented");
 }
 
