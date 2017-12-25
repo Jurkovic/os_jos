@@ -22,7 +22,7 @@ sys_cputs(const char *s, size_t len)
 	// Destroy the environment if not.
 
 	// LAB 3: Your code here.
-	user_mem_assert(curenv, s, len, PTE_U);
+	user_mem_assert(curenv, s, len, PTE_U | PTE_P);
 	
 
 	// Print the string supplied by the user.
@@ -89,7 +89,7 @@ sys_exofork(void)
 		return r;
 	}
 	e->env_status = ENV_NOT_RUNNABLE;
-	memcpy((void*)&(e->env_tf), (void*)&(curenv->env_tf), sizeof(e->env_tf));
+	memcpy(&(e->env_tf), &curenv->env_tf, sizeof(struct Trapframe));
 	
 	e->env_tf.tf_regs.reg_eax = 0;
 	return e->env_id; 
@@ -139,7 +139,21 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 	// LAB 5: Your code here.
 	// Remember to check whether the user has supplied us with a good
 	// address!
-	panic("sys_env_set_trapframe not implemented");
+	//panic("sys_env_set_trapframe not implemented");
+	struct Env *e;
+	int r;
+	if((r = envid2env(envid,&e,1)) < 0)
+		return r;
+
+    if (tf->tf_eip >= UTOP)
+        return -E_BAD_ENV;
+
+    e->env_tf = *tf;
+    e->env_tf.tf_cs &= 0x03;
+    e->env_tf.tf_eflags &= ~FL_IOPL_MASK;
+    e->env_tf.tf_eflags |= FL_IF;
+
+    return 0;
 }
 
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
@@ -205,6 +219,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	if((uint32_t)va >= UTOP || (uint32_t)va % PGSIZE != 0) {
 		return -E_INVAL;
 	} 
+       
 	if((perm & PTE_P) != PTE_P) {
 		return -E_INVAL;
 	}
@@ -225,6 +240,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	} 
 
 	return 0;
+
 }
 
 // Map the page of memory at 'srcva' in srcenvid's address space
@@ -485,6 +501,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
                 return sys_ipc_try_send((envid_t) a1, a2, (void *)a3, (unsigned) a4);
 	case SYS_ipc_recv:
                 return sys_ipc_recv((void*)a1);
+    case SYS_env_set_trapframe:
+    			return sys_env_set_trapframe(a1, (struct Trapframe *)a2);
 	default:
 		return -E_INVAL;
 	}

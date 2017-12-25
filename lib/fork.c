@@ -45,7 +45,7 @@ pgfault(struct UTrapframe *utf)
 	//   You should make three system calls.
 
 	// LAB 4: Your code here.
-	
+
 	r = sys_page_alloc(0, (void*)PFTEMP, PTE_U | PTE_P | PTE_W);
 	if(r < 0)
 		panic("pgfault: pri alokacii stranky doslo k chybe %e", r);
@@ -78,18 +78,16 @@ duppage(envid_t envid, unsigned pn)
 {
 	int r;
 
-	// LAB 4: Your code here.
-		
+	// LAB 4: Your code here.	
 	void* va = (void*)(pn*PGSIZE);
 	pte_t pte = uvpt[pn];	
 
 	if(pte & PTE_SHARE) {
 		r = sys_page_map(0,va,envid,va, pte & PTE_SYSCALL);
 		if(r < 0)
-			panic("duppage: vyskytla sa chyba pri page_map read only %e", r);
+			panic("duppage: vyskytla sa chyba pri page_map read only alebo share %e", r);
 	}
-
-	if(pte & (PTE_COW | PTE_W)) {
+	else if(pte & (PTE_COW | PTE_W)) {
 
 		r = sys_page_map(0, va, envid, va, PTE_COW | PTE_U | PTE_P);
 		if(r < 0) {
@@ -99,6 +97,11 @@ duppage(envid_t envid, unsigned pn)
         if(r < 0) {
             panic("duppage: vyskytla sa chyba pri rodicovi page_map %e", r);
         }
+	}
+	else {
+		r = sys_page_map(0,va,envid,va, pte & PTE_SYSCALL);
+		if(r < 0)
+			panic("duppage: vyskytla sa chyba pri page_map read only alebo share %e", r);
 	}
 	return 0;
 }
@@ -139,7 +142,7 @@ fork(void)
 	}
 	//toto je parent proces
 	uint8_t* addr;
-	for(addr = 0; addr < (uint8_t*)USTACKTOP; addr += PGSIZE) {
+	for(addr = (uint8_t*)UTEXT; addr < (uint8_t*)USTACKTOP; addr += PGSIZE) {
 
 		if((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P)) {
 			r = duppage(id, PGNUM(addr));
@@ -162,7 +165,8 @@ fork(void)
         panic("sys_env_set_status: %e", r);
 	}
 
-    return id;	
+    return id;
+    
 }
 
 // Challenge!

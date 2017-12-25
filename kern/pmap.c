@@ -645,6 +645,7 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
 
+
 	uintptr_t start = (uintptr_t)ROUNDDOWN(va,PGSIZE);
 	uintptr_t end = (uintptr_t)ROUNDUP(va+len, PGSIZE);
 
@@ -656,12 +657,13 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 	        }
 		store = pgdir_walk(env->env_pgdir, (void*)start,0);	
 		if(store == NULL || ((*store) & (perm | PTE_P)) != (perm | PTE_P)) {
-			user_mem_check_addr = start < (uintptr_t)va ? (uintptr_t)va : start; 
+			user_mem_check_addr = start > (uintptr_t)va ? (uintptr_t)va : start; 
 			return -E_FAULT;
 		}
 	}
 
 	return 0;
+
 }
 
 //
