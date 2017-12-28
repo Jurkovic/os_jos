@@ -77,20 +77,20 @@ trap_init(void)
 	extern void TH_DEBUG(); 	SETGATE(idt[T_DEBUG], 0, GD_KT, TH_DEBUG, 0); 
 	extern void TH_NMI(); 		SETGATE(idt[T_NMI], 0, GD_KT, TH_NMI, 0); 
 	extern void TH_BRKPT(); 	SETGATE(idt[T_BRKPT], 0, GD_KT, TH_BRKPT, 3); 
-	extern void TH_OFLOW(); 	SETGATE(idt[T_OFLOW], 0, GD_KT, TH_OFLOW, 0); 
-	extern void TH_BOUND(); 	SETGATE(idt[T_BOUND], 0, GD_KT, TH_BOUND, 0); 
-	extern void TH_ILLOP(); 	SETGATE(idt[T_ILLOP], 0, GD_KT, TH_ILLOP, 0); 
-	extern void TH_DEVICE(); 	SETGATE(idt[T_DEVICE], 0, GD_KT, TH_DEVICE, 0); 
-	extern void TH_DBLFLT(); 	SETGATE(idt[T_DBLFLT], 0, GD_KT, TH_DBLFLT, 0); 
-	extern void TH_TSS(); 		SETGATE(idt[T_TSS], 0, GD_KT, TH_TSS, 0); 
-	extern void TH_SEGNP(); 	SETGATE(idt[T_SEGNP], 0, GD_KT, TH_SEGNP, 0); 
-	extern void TH_STACK(); 	SETGATE(idt[T_STACK], 0, GD_KT, TH_STACK, 0); 
-	extern void TH_GPFLT(); 	SETGATE(idt[T_GPFLT], 0, GD_KT, TH_GPFLT, 0); 
+	extern void TH_OFLOW(); 	SETGATE(idt[T_OFLOW], 1, GD_KT, TH_OFLOW, 0); 
+	extern void TH_BOUND(); 	SETGATE(idt[T_BOUND], 1, GD_KT, TH_BOUND, 0); 
+	extern void TH_ILLOP(); 	SETGATE(idt[T_ILLOP], 1, GD_KT, TH_ILLOP, 0); 
+	extern void TH_DEVICE(); 	SETGATE(idt[T_DEVICE], 1, GD_KT, TH_DEVICE, 0); 
+	extern void TH_DBLFLT(); 	SETGATE(idt[T_DBLFLT], 1, GD_KT, TH_DBLFLT, 0); 
+	extern void TH_TSS(); 		SETGATE(idt[T_TSS], 1, GD_KT, TH_TSS, 0); 
+	extern void TH_SEGNP(); 	SETGATE(idt[T_SEGNP], 1, GD_KT, TH_SEGNP, 0); 
+	extern void TH_STACK(); 	SETGATE(idt[T_STACK], 1, GD_KT, TH_STACK, 0); 
+	extern void TH_GPFLT(); 	SETGATE(idt[T_GPFLT], 1, GD_KT, TH_GPFLT, 0); 
 	extern void TH_PGFLT(); 	SETGATE(idt[T_PGFLT], 0, GD_KT, TH_PGFLT, 0); 
-	extern void TH_FPERR(); 	SETGATE(idt[T_FPERR], 0, GD_KT, TH_FPERR, 0); 
-	extern void TH_ALIGN(); 	SETGATE(idt[T_ALIGN], 0, GD_KT, TH_ALIGN, 0); 
-	extern void TH_MCHK(); 		SETGATE(idt[T_MCHK], 0, GD_KT, TH_MCHK, 0); 
-	extern void TH_SIMDERR(); 	SETGATE(idt[T_SIMDERR], 0, GD_KT, TH_SIMDERR, 0); 
+	extern void TH_FPERR(); 	SETGATE(idt[T_FPERR], 1, GD_KT, TH_FPERR, 0); 
+	extern void TH_ALIGN(); 	SETGATE(idt[T_ALIGN], 1, GD_KT, TH_ALIGN, 0); 
+	extern void TH_MCHK(); 		SETGATE(idt[T_MCHK], 1, GD_KT, TH_MCHK, 0); 
+	extern void TH_SIMDERR(); 	SETGATE(idt[T_SIMDERR], 1, GD_KT, TH_SIMDERR, 0); 
 	extern void TH_SYSCALL(); 	SETGATE(idt[T_SYSCALL], 0, GD_KT, TH_SYSCALL, 3);
 	
 	extern void TH_IRQ_TIMER();	SETGATE(idt[IRQ_OFFSET],0,GD_KT,TH_IRQ_TIMER, 0);
@@ -148,6 +148,7 @@ trap_init_percpu(void)
 	// when we trap to the kernel.
 	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP - id * (KSTKSIZE + KSTKGAP);
 	thiscpu->cpu_ts.ts_ss0 = GD_KD;
+	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);
 
 	// Initialize the TSS slot of the gdt.
 	gdt[(GD_TSS0 >> 3) + id] = SEG16(STS_T32A, (uint32_t) (&thiscpu->cpu_ts), sizeof(struct Taskstate)-1, 0);
@@ -155,7 +156,7 @@ trap_init_percpu(void)
 
 	// Load the TSS selector (like other segment selectors, the
 	// bottom three bits are special; we leave them 0)
-	ltr(GD_TSS0+(id*sizeof(struct Segdesc)));
+	ltr(GD_TSS0+(id*8));
 
 	// Load the IDT
 	lidt(&idt_pd);
@@ -240,6 +241,14 @@ trap_dispatch(struct Trapframe *tf)
 			lapic_eoi();
 			sched_yield();
 			return;
+		// Handle keyboard and serial interrupts.
+		// LAB 5: Your code here.
+		case IRQ_OFFSET + IRQ_KBD:
+			kbd_intr();
+			return;
+		case IRQ_OFFSET + IRQ_SERIAL:
+			serial_intr();
+			return;
 		// Unexpected trap: The user process or the kernel has a bug.
 		default:
 			print_trapframe(tf);
@@ -249,16 +258,6 @@ trap_dispatch(struct Trapframe *tf)
 				env_destroy(curenv);
 			return;
 	}	
-	// Handle keyboard and serial interrupts.
-	// LAB 5: Your code here.
-
-	// Unexpected trap: The user process or the kernel has a bug.
-	print_trapframe(tf);
-	if (tf->tf_cs == GD_KT)
-		panic("unhandled trap in kernel");
-	else {
-		env_destroy(curenv);
-		return;
 }
 
 void
@@ -334,7 +333,7 @@ page_fault_handler(struct Trapframe *tf)
 
 	// LAB 3: Your code here.
 	
-	if((tf->tf_cs & 0x3) == 0) {
+	if(tf->tf_cs == 0) {
 		panic("page_fault_handler: Chyba stranok kernelu");
 	}
 

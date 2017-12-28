@@ -89,7 +89,7 @@ sys_exofork(void)
 		return r;
 	}
 	e->env_status = ENV_NOT_RUNNABLE;
-	memcpy((void*)&(e->env_tf), (void*)&(curenv->env_tf), sizeof(e->env_tf));
+	memcpy(&(e->env_tf), &curenv->env_tf, sizeof(struct Trapframe));
 	
 	e->env_tf.tf_regs.reg_eax = 0;
 	return e->env_id; 
@@ -139,7 +139,19 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 	// LAB 5: Your code here.
 	// Remember to check whether the user has supplied us with a good
 	// address!
-	panic("sys_env_set_trapframe not implemented");
+	//panic("sys_env_set_trapframe not implemented");
+	struct Env *e;
+	int r;
+	if((r = envid2env(envid,&e,1)) < 0)
+		return r;
+	
+    user_mem_assert(curenv, (void*)tf, sizeof(struct Trapframe), PTE_P | PTE_U);
+    e->env_tf = *tf;
+    e->env_tf.tf_eflags &= ~FL_IOPL_MASK;
+    e->env_tf.tf_eflags &= ~FL_IF;
+    e->env_tf.tf_cs |= 0x03;
+
+    return 0;
 }
 
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
@@ -202,15 +214,16 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	if(r < 0) {
 		return r; //-E_BAD_ENV
 	}
-	if((uint32_t)va >= UTOP || (uint32_t)va % PGSIZE != 0) {
+	if((uintptr_t)va > UTOP || (uintptr_t)va % PGSIZE != 0) {
 		return -E_INVAL;
 	} 
+       
 	if((perm & PTE_P) != PTE_P) {
 		return -E_INVAL;
 	}
 	if((perm & PTE_U) != PTE_U) {
-                return -E_INVAL;
-        }
+        return -E_INVAL;
+    }
 	if((perm & ~PTE_SYSCALL) != 0) {
 		return -E_INVAL;
 	}
@@ -225,6 +238,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	} 
 
 	return 0;
+
 }
 
 // Map the page of memory at 'srcva' in srcenvid's address space
@@ -267,7 +281,7 @@ sys_page_map(envid_t srcenvid, void *srcva,
     if(r < 0) {
      	return r; //-E_BAD_ENV
     }
-    if(((uint32_t)srcva >= UTOP || (uint32_t)srcva % PGSIZE != 0) || ((uint32_t)dstva >= UTOP || (uint32_t)dstva % PGSIZE != 0)) {
+    if(((uintptr_t)srcva > UTOP || (uintptr_t)srcva % PGSIZE != 0) || ((uintptr_t)dstva > UTOP || (uintptr_t)dstva % PGSIZE != 0)) {
         return -E_INVAL;
     }
 	if((perm & PTE_P) != PTE_P) {
@@ -286,7 +300,7 @@ sys_page_map(envid_t srcenvid, void *srcva,
 	if(p == NULL) {
 		return -E_INVAL;
 	}
-	if(((perm & PTE_W) == PTE_W) && ((*pte_src & PTE_W) == 0)) {
+	if((perm & PTE_W) && !(*pte_src & PTE_W)) {
 		return -E_INVAL;
 	}
 	if(page_insert(dste->env_pgdir, p, dstva, perm) != 0) {
@@ -315,7 +329,7 @@ sys_page_unmap(envid_t envid, void *va)
 	if(r < 0) {
 		return r;
 	}
-	if((uint32_t)va >= UTOP || (uint32_t)va % PGSIZE != 0) {
+	if((uintptr_t)va >= UTOP || (uintptr_t)va % PGSIZE != 0) {
 		return -E_INVAL;
 	}
 	page_remove(e->env_pgdir, va);
@@ -373,11 +387,11 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 	if(r < 0)
 		return r;
 
-	if(dste->env_ipc_recving != 1)
+	if((dste->env_ipc_recving != 1) || (dste->env_status != ENV_NOT_RUNNABLE))
 		return -E_IPC_NOT_RECV;
 
-
 	dste->env_ipc_perm = 0;
+
 	if((uint32_t)srcva < UTOP) {
 		if((uint32_t)srcva % PGSIZE != 0) {
 			cprintf("sys_ipc_try_send: Zle src adresa\n");
@@ -485,6 +499,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
                 return sys_ipc_try_send((envid_t) a1, a2, (void *)a3, (unsigned) a4);
 	case SYS_ipc_recv:
                 return sys_ipc_recv((void*)a1);
+    case SYS_env_set_trapframe:
+    			return sys_env_set_trapframe(a1, (struct Trapframe *)a2);
 	default:
 		return -E_INVAL;
 	}

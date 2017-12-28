@@ -302,6 +302,24 @@ static int
 copy_shared_pages(envid_t child)
 {
 	// LAB 5: Your code here.
+    int r;
+    unsigned pn;
+
+    uintptr_t addr;
+	for(addr = UTEXT; addr < USTACKTOP; addr += PGSIZE) {
+
+		if((uvpd[PDX(addr)] & PTE_P) && ((uvpt[PGNUM(addr)] & (PTE_P | PTE_SHARE)) == (PTE_P | PTE_SHARE))) {
+			pn = PGNUM(addr);
+
+			void* va = (void*)(pn*PGSIZE);
+			pte_t pte = uvpt[pn];	
+
+			r = sys_page_map(0,va,child,va, pte & PTE_SYSCALL);
+			if(r < 0)
+				panic("copy_shared_pages: vyskytla sa chyba pri sys_page_map %e", r);
+		}
+	}
+
 	return 0;
 }
 

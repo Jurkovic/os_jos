@@ -456,9 +456,11 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 {
 	// Fill this function in
 	pte_t *pte;
-	for(int i = 0; i < size; i += PGSIZE) {
-		pte = pgdir_walk(pgdir,(void*)(va+i), 1); //najdi adresu pte ak neexistuje vytvor
-		*pte = (pa+i) | perm | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+	for(uintptr_t i = 0; i < size; i += PGSIZE) {
+		if((pte = pgdir_walk(pgdir,(const void*)(va+i), 1)) == NULL) //najdi adresu pte ak neexistuje vytvor
+			panic("boot_map_region: Nedostatok pamate");
+
+		*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
 	}
 }
 
@@ -496,14 +498,15 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		return -E_NO_MEM; //free_page_list je NULL
 	}
 	pp->pp_ref++; //inkrementovanie referencii
-	if((*pte & PTE_P) == PTE_P) { //ak je stranka uz namapovana
-		page_remove(pgdir,va); //odstranenie stranky
+	if ( *pte & PTE_P ) {
+		if (page2pa(pp) == PTE_ADDR(*pte))
+			pp->pp_ref--;
+		else
+			page_remove(pgdir, va);
 	}
 	
-	*pte = page2pa(pp) | perm | PTE_P; 
-	pde_t *pde = pgdir + PDX(va);
-	*pde = *pde | perm;
-	 
+	*pte = PTE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P; 
+	
 	return 0;
 }
 
@@ -607,12 +610,11 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	size = ROUNDUP(size,PGSIZE);
 	void* retVal = (void*)base;
 	if(size+base > MMIOLIM) {
 		panic("mmio_map_region: Velkost presahuje MMIOLIM!");
 	}
-	
+	size = ROUNDUP(size,PGSIZE);
 	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD|PTE_PWT|PTE_W);
 
 	base += (uintptr_t)size;
@@ -644,24 +646,23 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
+	pte_t *pte_store;
+	uint32_t addr = ROUNDDOWN((uint32_t)va, PGSIZE);
+	uint32_t addr_end = ROUNDUP((uint32_t)va+len, PGSIZE);
 
-	uintptr_t start = (uintptr_t)ROUNDDOWN(va,PGSIZE);
-	uintptr_t end = (uintptr_t)ROUNDUP(va+len, PGSIZE);
+	user_mem_check_addr = (uintptr_t)va;
+	if ((uint32_t)va >= ULIM)
+		return -E_FAULT;
 
-	pte_t* store;
-	for(;start < end; start += PGSIZE) {	
-        	if(start >= ULIM) {
-			user_mem_check_addr = start;
-                	return -E_FAULT;
-	        }
-		store = pgdir_walk(env->env_pgdir, (void*)start,0);	
-		if(store == NULL || ((*store) & (perm | PTE_P)) != (perm | PTE_P)) {
-			user_mem_check_addr = start < (uintptr_t)va ? (uintptr_t)va : start; 
+	for (;addr < addr_end; addr += PGSIZE) {
+		if ( (page_lookup(env->env_pgdir, (void*)addr, &pte_store) == NULL) || \
+		     ((*pte_store & perm) != perm) ) {
+			user_mem_check_addr = addr < (uint32_t)va ? (uint32_t)va : addr;
 			return -E_FAULT;
 		}
 	}
-
 	return 0;
+
 }
 
 //
