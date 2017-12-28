@@ -53,6 +53,7 @@ bc_pgfault(struct UTrapframe *utf)
 		panic("bc_pgfault: Nepodarilo sa alokovat stranku %e", r);
 
 	if((r = ide_read(blockno * BLKSECTS, addrRound, BLKSECTS)) < 0) {
+
 		panic("bc_pgfault: Nepodarilo sa precitat alokovany blok %e", r);
 	}
 
