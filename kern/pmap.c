@@ -71,6 +71,7 @@ static void check_kern_pgdir(void);
 static physaddr_t check_va2pa(pde_t *pgdir, uintptr_t va);
 static void check_page(void);
 static void check_page_installed_pgdir(void);
+static void boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
 
 // This simple physical memory allocator is used only while JOS is setting
 // up its virtual memory system.  page_alloc() is the real allocator.
@@ -225,7 +226,7 @@ mem_init(void)
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
 	n = (2ULL << 31) - KERNBASE; 
-	boot_map_region(kern_pgdir, KERNBASE,n,0, PTE_P | PTE_W);	
+	boot_map_region_challenge(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
 
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
@@ -454,14 +455,43 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
-	// Fill this function in
 	pte_t *pte;
+
+		// Fill this function in
 	for(uintptr_t i = 0; i < size; i += PGSIZE) {
 		if((pte = pgdir_walk(pgdir,(const void*)(va+i), 1)) == NULL) //najdi adresu pte ak neexistuje vytvor
 			panic("boot_map_region: Nedostatok pamate");
 
-		*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+			*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
 	}
+}
+
+static void
+boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) {
+	uint32_t eax, ebx, ecx, edx;
+	int ret;
+	
+	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
+	cprintf("eax: %x ebx: %x ecx: %x edx: %x\n", eax, ebx, ecx, edx);
+	cprintf("va: %x pa: %x\n", va, pa);
+	//3. bit edx znaci PSE
+	if(edx & 8) {
+		if((PGLARGE(va)) == (PGLARGE(va))) { //22 bit cislo same jednotky
+			//aby sa dalo adresovat 4MB stranku je potreba 22 bitov
+			pde_t *pde = &(pgdir[PDX(va)]);
+			*pde |= PTE_PS; //nastavenie bitu PSE
+
+			for(int i = 0; i < size; i+=PGSIZE) {
+
+				*pde = ((pa+i) & 0x3FFFFF) | perm | PTE_P;
+			}
+			
+		}
+	}
+	else {
+		boot_map_region(pgdir, va, size, pa, perm);
+	}
+
 }
 
 //

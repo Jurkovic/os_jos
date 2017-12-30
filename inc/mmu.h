@@ -21,6 +21,7 @@
 // +----------------+----------------+---------------------+
 //  \--- PDX(la) --/ \--- PTX(la) --/ \---- PGOFF(la) ----/
 //  \---------- PGNUM(la) ----------/
+//                   \----------PGLARGE(la)---------------/
 //
 // The PDX, PTX, PGOFF, and PGNUM macros decompose linear addresses as shown.
 // To construct a linear address la from PDX(la), PTX(la), and PGOFF(la),
@@ -37,6 +38,9 @@
 
 // offset in page
 #define PGOFF(la)	(((uintptr_t) (la)) & 0xFFF)
+
+// spodnych 22 bitov
+#define PGLARGE(la) (((uintptr_t) (la)) & 0x3FFFFF)
 
 // construct linear address from indexes and offset
 #define PGADDR(d, t, o)	((void*) ((d) << PDXSHIFT | (t) << PTXSHIFT | (o)))
