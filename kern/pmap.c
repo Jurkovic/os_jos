@@ -232,7 +232,7 @@ mem_init(void)
 	mem_init_mp();
 
 	// Check that the initial page directory has been set up correctly.
-	check_kern_pgdir();
+	//check_kern_pgdir();
 
 	// Switch from the minimal entry page directory to the full kern_pgdir
 	// page table we just created.	Our instruction pointer should be
@@ -466,6 +466,22 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 	}
 }
 
+
+struct PageInfo *
+page_alloc_large(int alloc_flags)
+{
+	// Fill this function in
+	struct PageInfo* page = NULL;
+	if(page_free_list != NULL) {
+		page = page_free_list;
+		page_free_list = page_free_list->pp_link;
+		page->pp_link = NULL;
+		if(alloc_flags & ALLOC_ZERO)
+			memset(page2kva(page),'\0',PGSIZE);
+	}
+	return page;
+}
+
 static void
 boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) {
 	uint32_t eax, ebx, ecx, edx;
@@ -478,13 +494,19 @@ boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa
 	if(edx & 8) {
 		if((PGLARGE(va)) == (PGLARGE(va))) { //22 bit cislo same jednotky
 			//aby sa dalo adresovat 4MB stranku je potreba 22 bitov
+			pgdir[PDX(va)] |= PTE_PS;
 			pde_t *pde = &(pgdir[PDX(va)]);
-			*pde |= PTE_PS; //nastavenie bitu PSE
 
-			for(int i = 0; i < size; i+=PGSIZE) {
+			if(!(*pde & PTE_P)) {	
+				struct PageInfo* pp; //nova alokovana stranka
+				pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
+				if(pp == NULL)
+					panic("boot_map_region: Nedostatok pamate");
 
-				*pde = ((pa+i) & 0x3FFFFF) | perm | PTE_P;
+				pp->pp_ref++;
+				*pde = page2pa(pp) | PTE_P | (perm & 0x3FFFFF) ; //Nastavenie priznakov
 			}
+			//*pde = LARGE_ADDR(pa) | (perm & 0x3FFFFF) | PTE_P | PTE_PS;
 			
 		}
 	}
@@ -934,10 +956,16 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pgdir = &pgdir[PDX(va)];
 	if (!(*pgdir & PTE_P))
 		return ~0;
-	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
-	if (!(p[PTX(va)] & PTE_P))
-		return ~0;
-	return PTE_ADDR(p[PTX(va)]);
+	if(pgdir[PDX(va)] & PTE_PS) {
+		cprintf("hehe");
+		return LARGE_ADDR(va);
+	}
+	else {
+		p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
+		if (!(p[PTX(va)] & PTE_P))
+			return ~0;
+		return PTE_ADDR(p[PTX(va)]);
+	}	
 }
 
 
