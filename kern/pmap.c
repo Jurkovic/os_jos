@@ -477,7 +477,7 @@ page_alloc_large(int alloc_flags)
 		page_free_list = page_free_list->pp_link;
 		page->pp_link = NULL;
 		if(alloc_flags & ALLOC_ZERO)
-			memset(page2kva(page),'\0',PGSIZE);
+			memset(lgpage2kva(page),'\0',PGSIZELG);
 	}
 	return page;
 }
@@ -492,19 +492,19 @@ boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa
 	cprintf("va: %x pa: %x\n", va, pa);
 	//3. bit edx znaci PSE
 	if(edx & 8) {
-		if((PGLARGE(va)) == (PGLARGE(va))) { //22 bit cislo same jednotky
+		if((PGLARGE(va)) == (PGLARGE(pa))) { //22 bit cislo same jednotky
 			//aby sa dalo adresovat 4MB stranku je potreba 22 bitov
 			pgdir[PDX(va)] |= PTE_PS;
 			pde_t *pde = &(pgdir[PDX(va)]);
 
-			if(!(*pde & PTE_P)) {	
+			if(!(*pde & PTE_P)) {				
 				struct PageInfo* pp; //nova alokovana stranka
-				pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
+				pp = page_alloc_large(ALLOC_ZERO); //vynulovat novu stranku
 				if(pp == NULL)
 					panic("boot_map_region: Nedostatok pamate");
 
 				pp->pp_ref++;
-				*pde = page2pa(pp) | PTE_P | (perm & 0x3FFFFF) ; //Nastavenie priznakov
+				*pde = LARGE_ADDR(lgpage2pa(pp)) | PTE_P | (perm & 0x3FFFFF) ; //Nastavenie priznakov
 			}
 			//*pde = LARGE_ADDR(pa) | (perm & 0x3FFFFF) | PTE_P | PTE_PS;
 			

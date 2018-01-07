@@ -29,6 +29,7 @@
 
 // page number field of address
 #define PGNUM(la)	(((uintptr_t) (la)) >> PTXSHIFT)
+#define PGNUMLG(la)     (((uintptr_t) (la)) >> PDXSHIFT)
 
 // page directory index
 #define PDX(la)		((((uintptr_t) (la)) >> PDXSHIFT) & 0x3FF)
@@ -53,6 +54,7 @@
 #define PGSHIFT		12		// log2(PGSIZE)
 
 #define PGSIZELG	4194304 //size of large page
+#define PGSHIFTLG       22
 
 #define PTSIZE		(PGSIZE*NPTENTRIES) // bytes mapped by a page directory entry
 #define PTSHIFT		22		// log2(PTSIZE)
