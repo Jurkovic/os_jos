@@ -226,7 +226,7 @@ mem_init(void)
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
 	n = (2ULL << 31) - KERNBASE; 
-	boot_map_region_challenge(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
+	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
 
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
@@ -467,54 +467,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 }
 
 
-struct PageInfo *
-page_alloc_large(int alloc_flags)
-{
-	// Fill this function in
-	struct PageInfo* page = NULL;
-	if(page_free_list != NULL) {
-		page = page_free_list;
-		page_free_list = page_free_list->pp_link;
-		page->pp_link = NULL;
-		if(alloc_flags & ALLOC_ZERO)
-			memset(lgpage2kva(page),'\0',PGSIZELG);
-	}
-	return page;
-}
-
-static void
-boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) {
-	uint32_t eax, ebx, ecx, edx;
-	int ret;
 	
-	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
-	cprintf("eax: %x ebx: %x ecx: %x edx: %x\n", eax, ebx, ecx, edx);
-	cprintf("va: %x pa: %x\n", va, pa);
-	//3. bit edx znaci PSE
-	if(edx & 8) {
-		if((PGLARGE(va)) == (PGLARGE(pa))) { //22 bit cislo same jednotky
-			//aby sa dalo adresovat 4MB stranku je potreba 22 bitov
-			pgdir[PDX(va)] |= PTE_PS;
-			pde_t *pde = &(pgdir[PDX(va)]);
-
-			if(!(*pde & PTE_P)) {				
-				struct PageInfo* pp; //nova alokovana stranka
-				pp = page_alloc_large(ALLOC_ZERO); //vynulovat novu stranku
-				if(pp == NULL)
-					panic("boot_map_region: Nedostatok pamate");
-
-				pp->pp_ref++;
-				*pde = LARGE_ADDR(lgpage2pa(pp)) | PTE_P | (perm & 0x3FFFFF) ; //Nastavenie priznakov
-			}
-			//*pde = LARGE_ADDR(pa) | (perm & 0x3FFFFF) | PTE_P | PTE_PS;
-			
-		}
-	}
-	else {
-		boot_map_region(pgdir, va, size, pa, perm);
-	}
-
-}
 
 //
 // Map the physical page 'pp' at virtual address 'va'.
@@ -956,16 +909,12 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pgdir = &pgdir[PDX(va)];
 	if (!(*pgdir & PTE_P))
 		return ~0;
-	if(pgdir[PDX(va)] & PTE_PS) {
-		cprintf("hehe");
-		return LARGE_ADDR(va);
-	}
-	else {
+	
 		p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
 		if (!(p[PTX(va)] & PTE_P))
 			return ~0;
 		return PTE_ADDR(p[PTX(va)]);
-	}	
+		
 }
 
 
