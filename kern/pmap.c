@@ -137,6 +137,18 @@ mem_init(void)
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
 
+	//challenge nastavenie PSE bitu
+	uint32_t cr4 = 0;
+	uint32_t eax, ebx, ecx, edx;
+	
+	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
+	if(edx & CR4_PSE) {
+		cr4 = rcr4();
+		cr4 |= CR4_PSE;
+		lcr4(cr4);
+	}
+
+
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
 	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
