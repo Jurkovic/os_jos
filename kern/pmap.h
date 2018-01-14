@@ -45,6 +45,20 @@ _kaddr(const char *file, int line, physaddr_t pa)
 	return (void *)(pa + KERNBASE);
 }
 
+/* kaddr macro pre large pages */
+//challenge
+#define KADDRLG(pa) _kaddrlg(__FILE__, __LINE__, pa)
+
+static inline void*
+_kaddrlg(const char *file, int line, physaddr_t pa)
+{
+	
+	if (PGNUMLG(pa) >= npages)
+		_panic(file, line, "KADDRLG called with invalid pa %08lx", pa);
+
+	return (void *)(pa + KERNBASE);
+}
+
 
 
 
@@ -76,6 +90,12 @@ page2pa(struct PageInfo *pp)
 	return (pp - pages) << PGSHIFT;
 }
 
+static inline physaddr_t
+lgpage2pa(struct PageInfo *pp)
+{
+	return (pp - pages) << PGSHIFTLG;
+}
+
 static inline struct PageInfo*
 pa2page(physaddr_t pa)
 {
@@ -83,6 +103,16 @@ pa2page(physaddr_t pa)
 		panic("pa2page called with invalid pa");
 	return &pages[PGNUM(pa)];
 }
+
+//challenge
+static inline struct PageInfo*
+pa2lgpage(physaddr_t pa)
+{
+	if (PGNUMLG(pa) >= npages)
+		panic("pa2lgpage called with invalid pa");
+	return &pages[PGNUMLG(pa)];
+}
+
 
 static inline void*
 page2kva(struct PageInfo *pp)

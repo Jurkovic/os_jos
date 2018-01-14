@@ -137,17 +137,6 @@ mem_init(void)
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
 
-	//challenge nastavenie PSE bitu
-	uint32_t cr4 = 0;
-	uint32_t eax, ebx, ecx, edx;
-	
-	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
-	if(edx & CR4_PSE) {
-		cr4 = rcr4();
-		cr4 |= CR4_PSE;
-		lcr4(cr4);
-	}
-
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
@@ -229,6 +218,19 @@ mem_init(void)
 	boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_P | PTE_W);
 	
 
+
+
+		//challenge nastavenie PSE bitu
+	uint32_t cr4 = 0;
+	uint32_t eax, ebx, ecx, edx;
+	
+	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
+	if(edx & CR4_PSE) {
+		cr4 = rcr4();
+		cr4 |= CR4_PSE;
+		lcr4(cr4);
+	}
+
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -238,7 +240,7 @@ mem_init(void)
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
 	n = (2ULL << 31) - KERNBASE; 
-	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
+	boot_map_region_challenge(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
 
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
@@ -432,25 +434,34 @@ page_decref(struct PageInfo* pp)
 pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
+	uint32_t cr4 = rcr4();
+
 	// Fill this function in
 	pde_t *pde = &(pgdir[PDX(va)]); //Riadok v tabulke 1. urovne
-	pte_t *pte = NULL;
-	if(*pde & PTE_P) { //Ak je pte v pamati	
-		pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Adresa tabulky 2. urovne
-		pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
-	}
-	else if(create){	
-		struct PageInfo* pp; //nova alokovana stranka
-		pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
-		if(pp == NULL)
-			return NULL;
-		pp->pp_ref++;
-		*pde = page2pa(pp) | PTE_P | PTE_W | PTE_U; //Nastavenie priznakov
-		pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Tab 2 adresa
-		pte = &(pte[PTX(va)]); //Riadok tab 2
-	}
 
-	return pte;
+	if(cr4 & CR4_PSE) {
+			cprintf("nastaveny\n");
+			return (pte_t*)pde; //challenge
+	}
+	else {
+		pte_t *pte = NULL;
+		if(*pde & PTE_P) { //Ak je pte v pamati	
+			pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Adresa tabulky 2. urovne
+			pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
+		}
+		else if(create){	
+			struct PageInfo* pp; //nova alokovana stranka
+			pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
+			if(pp == NULL)
+				return NULL;
+			pp->pp_ref++;
+			*pde = page2pa(pp) | PTE_P | PTE_W | PTE_U; //Nastavenie priznakov
+			pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Tab 2 adresa
+			pte = &(pte[PTX(va)]); //Riadok tab 2
+		}
+		return pte;
+	}
+	return NULL;
 }
 
 //
@@ -476,6 +487,20 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 
 			*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
 	}
+}
+
+static void boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) {
+	uint32_t cr4 = rcr4();
+	cprintf("som tu\n");
+	if(cr4 & CR4_PSE) {
+		pte_t *pde;
+		if((pde = pgdir_walk(pgdir,(const void*)va, 1)) == NULL)
+			panic("boot_map_region_challenge: Nedostatok pamate");
+		*pde = LARGE_ADDR(pa) | (perm & 0x3FFFFF) | PTE_P | PTE_PS;
+		cprintf("%x\n", pde);
+
+	}
+
 }
 
 
@@ -515,14 +540,25 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		return -E_NO_MEM; //free_page_list je NULL
 	}
 	pp->pp_ref++; //inkrementovanie referencii
-	if ( *pte & PTE_P ) {
+	if(*pte & (PTE_P | PTE_PS)) {
+		cprintf("ps nastaveny\n");
+		if (lgpage2pa(pp) == LARGE_ADDR(*pte))
+			pp->pp_ref--;
+		else
+			page_remove(pgdir, va);
+
+		*pte = LARGE_ADDR(lgpage2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P;  
+	}
+	else if ( *pte & PTE_P ) {
 		if (page2pa(pp) == PTE_ADDR(*pte))
 			pp->pp_ref--;
 		else
 			page_remove(pgdir, va);
+
+		*pte = PTE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P; 
 	}
 	
-	*pte = PTE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P; 
+	
 	
 	return 0;
 }
@@ -547,7 +583,11 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 	if(pte_store) { 
 		*pte_store = pte; //pridaj adresu stranky do pte_store
 	}
-	if(pte != NULL && *pte & PTE_P) {
+	if(pte != NULL && *pte & (PTE_P | PTE_PS)) {
+		cprintf("page_lookup\n");
+		pp = pa2lgpage(*pte); //challenge
+	}		
+	else if(pte != NULL && *pte & PTE_P) {
 		pp = pa2page(PTE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu		
 	}
 	return pp;
