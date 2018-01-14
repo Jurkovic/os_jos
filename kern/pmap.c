@@ -137,16 +137,7 @@ mem_init(void)
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
 
-	//challenge nastavenie PSE bitu
-	uint32_t cr4 = 0;
-	uint32_t eax, ebx, ecx, edx;
 	
-	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
-	if(edx & CR4_PSE) {
-		cr4 = rcr4();
-		cr4 |= CR4_PSE;
-		lcr4(cr4);
-	}
 
 
 	//////////////////////////////////////////////////////////////////////
@@ -237,8 +228,22 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
-	n = (2ULL << 31) - KERNBASE; 
-	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
+	//challenge nastavenie PSE bitu
+	uint32_t cr4 = 0;
+	uint32_t eax, ebx, ecx, edx;
+	
+	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
+	if(edx & CR4_PSE) {
+		cr4 = rcr4();
+		cr4 |= CR4_PSE;
+		lcr4(cr4);
+	}
+
+	n = (2ULL << 31) - KERNBASE;
+	cprintf("%d\n", n); 
+	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);
+	
+	lcr4(0);	
 
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
@@ -468,6 +473,15 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	pte_t *pte;
+	uint32_t cr4;
+
+	cr4 = rcr4();
+	
+	if(cr4 & CR4_PSE){
+		cprintf("mapujem kernbase\n");
+	} else {
+		cprintf("mapujem\n");
+	}
 
 		// Fill this function in
 	for(uintptr_t i = 0; i < size; i += PGSIZE) {
