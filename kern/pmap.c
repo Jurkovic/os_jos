@@ -20,6 +20,8 @@ pde_t *kern_pgdir;		// Kernel's initial page directory
 struct PageInfo *pages;		// Physical page state array
 static struct PageInfo *page_free_list;	// Free list of physical pages
 
+int pse = 0;
+
 
 // --------------------------------------------------------------
 // Detect machine's physical memory setup.
@@ -132,22 +134,11 @@ void
 mem_init(void)
 {
 	uint32_t cr0;
+	uint32_t cr4;
 	size_t n;
 
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
-
-	//challenge nastavenie PSE bitu
-	uint32_t cr4 = 0;
-	uint32_t eax, ebx, ecx, edx;
-	
-	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
-	if(edx & CR4_PSE) {
-		cr4 = rcr4();
-		cr4 |= CR4_PSE;
-		lcr4(cr4);
-	}
-
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
@@ -237,6 +228,12 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
+	if(pse) {
+		cr4 = rcr4();
+		cr4 |= CR4_PSE;
+		lcr4(cr4);
+	}
+
 	n = (2ULL << 31) - KERNBASE; 
 	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
 
@@ -433,24 +430,34 @@ pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
-	pde_t *pde = &(pgdir[PDX(va)]); //Riadok v tabulke 1. urovne
-	pte_t *pte = NULL;
-	if(*pde & PTE_P) { //Ak je pte v pamati	
-		pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Adresa tabulky 2. urovne
-		pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
-	}
-	else if(create){	
-		struct PageInfo* pp; //nova alokovana stranka
-		pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
-		if(pp == NULL)
-			return NULL;
-		pp->pp_ref++;
-		*pde = page2pa(pp) | PTE_P | PTE_W | PTE_U; //Nastavenie priznakov
-		pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Tab 2 adresa
-		pte = &(pte[PTX(va)]); //Riadok tab 2
-	}
 
-	return pte;
+
+	if(rcr4() & CR4_PSE)
+	{	
+		pgdir[PDX(va)] |= PTE_PS;
+		pde_t *pde = &(pgdir[PDX(va)]);
+		return pde;
+	}
+	else {
+		pde_t *pde = &(pgdir[PDX(va)]); //Riadok v tabulke 1. urovne
+		pte_t *pte = NULL;
+		if(*pde & PTE_P) { //Ak je pte v pamati	
+			pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Adresa tabulky 2. urovne
+			pte = &(pte[PTX(va)]); //Riadok tabulky 2. urovne
+		}
+		else if(create){	
+			struct PageInfo* pp; //nova alokovana stranka
+			pp = page_alloc(ALLOC_ZERO); //vynulovat novu stranku
+			if(pp == NULL)
+				return NULL;
+			pp->pp_ref++;
+			*pde = page2pa(pp) | PTE_P | PTE_W | PTE_U; //Nastavenie priznakov
+			pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Tab 2 adresa
+			pte = &(pte[PTX(va)]); //Riadok tab 2
+		}
+		return pte;
+	}
+	
 }
 
 //
@@ -469,12 +476,22 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 {
 	pte_t *pte;
 
-		// Fill this function in
-	for(uintptr_t i = 0; i < size; i += PGSIZE) {
-		if((pte = pgdir_walk(pgdir,(const void*)(va+i), 1)) == NULL) //najdi adresu pte ak neexistuje vytvor
-			panic("boot_map_region: Nedostatok pamate");
+	if(rcr4() & CR4_PSE) {
+		for(uintptr_t i = 0; i < size; i += PGSIZELG) {
+			pte = pgdir_walk(pgdir,(const void*)(va+i), 0); //najdi adresu pde ak neexistuje vytvor
 
-			*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+
+			*pte = PDE_ADDR(pa+i) | (perm & 0x3FFFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+		}
+	}
+	else {
+		// Fill this function in
+		for(uintptr_t i = 0; i < size; i += PGSIZE) {
+			if((pte = pgdir_walk(pgdir,(const void*)(va+i), 1)) == NULL) //najdi adresu pte ak neexistuje vytvor
+				panic("boot_map_region: Nedostatok pamate");
+
+				*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+		}
 	}
 }
 
