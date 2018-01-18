@@ -8,6 +8,8 @@
 
 #include <inc/memlayout.h>
 #include <inc/assert.h>
+#include <inc/x86.h>
+
 struct Env;
 
 extern char bootstacktop[], bootstack[];
@@ -44,9 +46,16 @@ _paddr(const char *file, int line, void *kva)
 static inline void*
 _kaddr(const char *file, int line, physaddr_t pa)
 {
-	if (PGNUM(pa) >= npages)
-		_panic(file, line, "KADDR called with invalid pa %08lx", pa);
-	return (void *)(pa + KERNBASE);
+	if(rcr4() & CR4_PSE) {
+		if (PGNUMLG(pa) >= npages)
+			_panic(file, line, "KADDR called with invalid pa %08lx", pa);
+		return (void *)(pa + KERNBASE);
+	}
+	else {
+		if (PGNUM(pa) >= npages)
+			_panic(file, line, "KADDR called with invalid pa %08lx", pa);
+		return (void *)(pa + KERNBASE);
+	}
 }
 
 
@@ -77,15 +86,30 @@ void	user_mem_assert(struct Env *env, const void *va, size_t len, int perm);
 static inline physaddr_t
 page2pa(struct PageInfo *pp)
 {
-	return (pp - pages) << PGSHIFT;
+	if(rcr4() & CR4_PSE) {
+		return (pp - pages) << PGSHIFTLG;
+	}
+	else{
+		return (pp - pages) << PGSHIFT;
+	} 
+
+
 }
 
 static inline struct PageInfo*
 pa2page(physaddr_t pa)
 {
-	if (PGNUM(pa) >= npages)
-		panic("pa2page called with invalid pa");
-	return &pages[PGNUM(pa)];
+	if(rcr4() & CR4_PSE) {
+		if (PGNUMLG(pa) >= npages)
+			panic("pa2page called with invalid pa");
+		return &pages[PGNUMLG(pa)];
+
+	}
+	else {
+		if (PGNUM(pa) >= npages)
+			panic("pa2page called with invalid pa");
+		return &pages[PGNUM(pa)];
+	}	
 }
 
 static inline void*
@@ -93,6 +117,9 @@ page2kva(struct PageInfo *pp)
 {
 	return KADDR(page2pa(pp));
 }
+
+
+
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
 

@@ -241,7 +241,7 @@ mem_init(void)
 	mem_init_mp();
 
 	// Check that the initial page directory has been set up correctly.
-	//check_kern_pgdir();
+	check_kern_pgdir();
 
 	// Switch from the minimal entry page directory to the full kern_pgdir
 	// page table we just created.	Our instruction pointer should be
@@ -371,8 +371,14 @@ page_alloc(int alloc_flags)
 		page = page_free_list;
 		page_free_list = page_free_list->pp_link;
 		page->pp_link = NULL;
-		if(alloc_flags & ALLOC_ZERO)
-			memset(page2kva(page),'\0',PGSIZE);
+		if(alloc_flags & ALLOC_ZERO) {
+			if(rcr4() & CR4_PSE) {
+				memset(page2kva(page),'\0',PGSIZELG);
+			}
+			else {
+				memset(page2kva(page),'\0',PGSIZE);
+			}
+		}
 	}
 	return page;
 }
@@ -533,13 +539,28 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 	}
 	pp->pp_ref++; //inkrementovanie referencii
 	if ( *pte & PTE_P ) {
-		if (page2pa(pp) == PTE_ADDR(*pte))
-			pp->pp_ref--;
-		else
-			page_remove(pgdir, va);
+		if(rcr4() & CR4_PSE) {
+			if (page2pa(pp) == PTE_ADDR(*pte))
+				pp->pp_ref--;
+			else
+				page_remove(pgdir, va);
+			
+		}
+		else {
+			if (page2pa(pp) == PTE_ADDR(*pte))
+				pp->pp_ref--;
+			else
+				page_remove(pgdir, va);
+			 
+		}
 	}
-	
-	*pte = PTE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P; 
+
+	if(rcr4() & CR4_PSE) {
+		*pte = PDE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P;
+	}
+	else {
+		*pte = PTE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P;
+	}
 	
 	return 0;
 }
@@ -565,7 +586,12 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 		*pte_store = pte; //pridaj adresu stranky do pte_store
 	}
 	if(pte != NULL && *pte & PTE_P) {
-		pp = pa2page(PTE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu		
+		if(rcr4() & CR4_PSE) {
+			pp = pa2page(PDE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu
+		}
+		else {
+			pp = pa2page(PTE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu		
+		}
 	}
 	return pp;
 }
@@ -878,6 +904,8 @@ check_kern_pgdir(void)
 
 	pgdir = kern_pgdir;
 
+	npages -= 64 * 1024; 
+
 	// check pages array
 	n = ROUNDUP(npages*sizeof(struct PageInfo), PGSIZE);
 	for (i = 0; i < n; i += PGSIZE)
@@ -889,7 +917,7 @@ check_kern_pgdir(void)
 		assert(check_va2pa(pgdir, UENVS + i) == PADDR(envs) + i);
 
 	// check phys mem
-	for (i = 0; i < npages * PGSIZE; i += PGSIZE)
+	for (i = 0; i < npages * PGSIZELG; i += PGSIZELG)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
 
 	// check kernel stack
@@ -936,13 +964,16 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pte_t *p;
 
 	pgdir = &pgdir[PDX(va)];
+	if(rcr4() & CR4_PSE) {
+		return PDE_ADDR(*pgdir);
+	}
 	if (!(*pgdir & PTE_P))
 		return ~0;
 	
-		p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
-		if (!(p[PTX(va)] & PTE_P))
-			return ~0;
-		return PTE_ADDR(p[PTX(va)]);
+	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
+	if (!(p[PTX(va)] & PTE_P))
+		return ~0;
+	return PTE_ADDR(p[PTX(va)]);
 		
 }
 
