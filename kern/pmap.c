@@ -194,6 +194,12 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
+		if(pse) {
+		cr4 = rcr4();
+		cr4 |= CR4_PSE;
+		lcr4(cr4);
+	}
+	
 	boot_map_region(kern_pgdir, UPAGES,PTSIZE,PADDR(pages),PTE_U | PTE_P);
 
 	//////////////////////////////////////////////////////////////////////
@@ -228,13 +234,10 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
-	if(pse) {
-		cr4 = rcr4();
-		cr4 |= CR4_PSE;
-		lcr4(cr4);
-	}
+
 
 	n = (2ULL << 31) - KERNBASE; 
+	cprintf("Velkost n %d\n",n);
 	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
 
 	// Initialize the SMP-related parts of the memory map
@@ -440,6 +443,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 
 	if(rcr4() & CR4_PSE)
 	{	
+		cprintf("va pgdir walk = %x PDX(va) = %d\n",va, PDX(va));
 		pgdir[PDX(va)] |= PTE_PS;
 		pde_t *pde = &(pgdir[PDX(va)]);
 		return pde;
@@ -544,14 +548,12 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 				pp->pp_ref--;
 			else
 				page_remove(pgdir, va);
-			
 		}
 		else {
 			if (page2pa(pp) == PTE_ADDR(*pte))
 				pp->pp_ref--;
 			else
 				page_remove(pgdir, va);
-			 
 		}
 	}
 
@@ -904,12 +906,19 @@ check_kern_pgdir(void)
 
 	pgdir = kern_pgdir;
 
-	npages -= 64 * 1024; 
+	//npages -= 64 * 1024; 
+	//npages -= 64;
+	cprintf("Pocet stranok %d\n", npages);
+	
 
 	// check pages array
 	n = ROUNDUP(npages*sizeof(struct PageInfo), PGSIZE);
-	for (i = 0; i < n; i += PGSIZE)
+	for (i = 0; i < n; i += PGSIZE) {
+		cprintf("testuje sa pages\n");
 		assert(check_va2pa(pgdir, UPAGES + i) == PADDR(pages) + i);
+	}
+
+	lcr4(0);
 
 	// check envs array (new test for lab 3)
 	n = ROUNDUP(NENV*sizeof(struct Env), PGSIZE);
@@ -919,6 +928,10 @@ check_kern_pgdir(void)
 	// check phys mem
 	for (i = 0; i < npages * PGSIZELG; i += PGSIZELG)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
+
+	if(pse) {
+		//lcr4(CR4_PSE);
+	}
 
 	// check kernel stack
 	// (updated in lab 4 to check per-CPU kernel stacks)
@@ -965,6 +978,16 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 
 	pgdir = &pgdir[PDX(va)];
 	if(rcr4() & CR4_PSE) {
+		int cnt =0;
+		cprintf("Aktualne PDX(va) = %d va = %x\n ", PDX(va), va);
+		for(int i = 0; i < 1024; i++) {
+			if(pgdir[i] & PTE_PS){
+				cprintf("pte ps je nastaveny i = %d\n",i);
+				cnt++;
+		}
+		}
+		cprintf("pocet nastavenych %d\n",cnt);
+
 		return PDE_ADDR(*pgdir);
 	}
 	if (!(*pgdir & PTE_P))
