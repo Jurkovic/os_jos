@@ -194,12 +194,6 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
-		if(pse) {
-		cr4 = rcr4();
-		cr4 |= CR4_PSE;
-		lcr4(cr4);
-	}
-	
 	boot_map_region(kern_pgdir, UPAGES,PTSIZE,PADDR(pages),PTE_U | PTE_P);
 
 	//////////////////////////////////////////////////////////////////////
@@ -211,6 +205,7 @@ mem_init(void)
 	// LAB 3: Your code here.
 
 	boot_map_region(kern_pgdir, UENVS, PTSIZE, PADDR(envs), PTE_U | PTE_P);
+
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -234,14 +229,18 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
-
+	if(pse) {
+		lcr4(CR4_PSE);
+	}
 
 	n = (2ULL << 31) - KERNBASE; 
-	cprintf("Velkost n %d\n",n);
-	boot_map_region(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W);	
+	boot_map_region_challenge(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W | PTE_PS);
 
+	
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
+
+	//lcr3(PADDR(kern_pgdir));
 
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
@@ -257,6 +256,7 @@ mem_init(void)
 
 	check_page_free_list(0);
 
+
 	// entry.S set the really important flags in cr0 (including enabling
 	// paging).  Here we configure the rest of the flags that we care about.
 	cr0 = rcr0();
@@ -265,7 +265,7 @@ mem_init(void)
 	lcr0(cr0);
 
 	// Some more checks, only possible after kern_pgdir is installed.
-	check_page_installed_pgdir();
+	//check_page_installed_pgdir();
 }
 
 // Modify mappings in kern_pgdir to support SMP
@@ -375,12 +375,7 @@ page_alloc(int alloc_flags)
 		page_free_list = page_free_list->pp_link;
 		page->pp_link = NULL;
 		if(alloc_flags & ALLOC_ZERO) {
-			if(rcr4() & CR4_PSE) {
-				memset(page2kva(page),'\0',PGSIZELG);
-			}
-			else {
 				memset(page2kva(page),'\0',PGSIZE);
-			}
 		}
 	}
 	return page;
@@ -440,16 +435,13 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
 
+	pde_t *pde = &(pgdir[PDX(va)]);
 
-	if(rcr4() & CR4_PSE)
+	if(*pde & PTE_PS)
 	{	
-		cprintf("va pgdir walk = %x PDX(va) = %d\n",va, PDX(va));
-		pgdir[PDX(va)] |= PTE_PS;
-		pde_t *pde = &(pgdir[PDX(va)]);
 		return pde;
 	}
 	else {
-		pde_t *pde = &(pgdir[PDX(va)]); //Riadok v tabulke 1. urovne
 		pte_t *pte = NULL;
 		if(*pde & PTE_P) { //Ak je pte v pamati	
 			pte = (pte_t*)KADDR(PTE_ADDR(*pde)); //Adresa tabulky 2. urovne
@@ -486,25 +478,21 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 {
 	pte_t *pte;
 
-	if(rcr4() & CR4_PSE) {
-		for(uintptr_t i = 0; i < size; i += PGSIZELG) {
-			pte = pgdir_walk(pgdir,(const void*)(va+i), 0); //najdi adresu pde ak neexistuje vytvor
-
-
-			*pte = PDE_ADDR(pa+i) | (perm & 0x3FFFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
-		}
-	}
-	else {
-		// Fill this function in
-		for(uintptr_t i = 0; i < size; i += PGSIZE) {
-			if((pte = pgdir_walk(pgdir,(const void*)(va+i), 1)) == NULL) //najdi adresu pte ak neexistuje vytvor
-				panic("boot_map_region: Nedostatok pamate");
-
-				*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
-		}
+	// Fill this function in
+	for(uintptr_t i = 0; i < size; i += PGSIZE) {
+		if((pte = pgdir_walk(pgdir,(const void*)(va+i), 1)) == NULL) //najdi adresu pte ak neexistuje vytvor
+			panic("boot_map_region: Nedostatok pamate");
+			*pte = PTE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
 	}
 }
 
+static void boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) 
+{
+	for(uintptr_t i = 0; i < size; i += PGSIZELG) {
+		pde_t *pde = &(pgdir[PDX(va+i)]);
+		*pde = PDE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+	}
+}
 
 	
 
@@ -543,8 +531,8 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 	}
 	pp->pp_ref++; //inkrementovanie referencii
 	if ( *pte & PTE_P ) {
-		if(rcr4() & CR4_PSE) {
-			if (page2pa(pp) == PTE_ADDR(*pte))
+		if(*pte & PTE_PS) {
+			if (page2pa(pp) == PDE_ADDR(*pte))
 				pp->pp_ref--;
 			else
 				page_remove(pgdir, va);
@@ -557,7 +545,7 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		}
 	}
 
-	if(rcr4() & CR4_PSE) {
+	if(*pte & PTE_PS) {
 		*pte = PDE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P;
 	}
 	else {
@@ -588,7 +576,7 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 		*pte_store = pte; //pridaj adresu stranky do pte_store
 	}
 	if(pte != NULL && *pte & PTE_P) {
-		if(rcr4() & CR4_PSE) {
+		if(*pte & PTE_PS) {
 			pp = pa2page(PDE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu
 		}
 		else {
@@ -677,7 +665,7 @@ mmio_map_region(physaddr_t pa, size_t size)
 		panic("mmio_map_region: Velkost presahuje MMIOLIM!");
 	}
 	size = ROUNDUP(size,PGSIZE);
-	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD|PTE_PWT|PTE_W);
+	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD|PTE_PWT|PTE_W | PTE_PS);
 
 	base += (uintptr_t)size;
 
@@ -906,19 +894,12 @@ check_kern_pgdir(void)
 
 	pgdir = kern_pgdir;
 
-	//npages -= 64 * 1024; 
-	//npages -= 64;
-	cprintf("Pocet stranok %d\n", npages);
-	
-
 	// check pages array
 	n = ROUNDUP(npages*sizeof(struct PageInfo), PGSIZE);
 	for (i = 0; i < n; i += PGSIZE) {
-		cprintf("testuje sa pages\n");
 		assert(check_va2pa(pgdir, UPAGES + i) == PADDR(pages) + i);
 	}
 
-	lcr4(0);
 
 	// check envs array (new test for lab 3)
 	n = ROUNDUP(NENV*sizeof(struct Env), PGSIZE);
@@ -928,10 +909,6 @@ check_kern_pgdir(void)
 	// check phys mem
 	for (i = 0; i < npages * PGSIZELG; i += PGSIZELG)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
-
-	if(pse) {
-		//lcr4(CR4_PSE);
-	}
 
 	// check kernel stack
 	// (updated in lab 4 to check per-CPU kernel stacks)
@@ -977,22 +954,8 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pte_t *p;
 
 	pgdir = &pgdir[PDX(va)];
-	if(rcr4() & CR4_PSE) {
-		int cnt =0;
-		cprintf("Aktualne PDX(va) = %d va = %x\n ", PDX(va), va);
-		for(int i = 0; i < 1024; i++) {
-			if(pgdir[i] & PTE_PS){
-				cprintf("pte ps je nastaveny i = %d\n",i);
-				cnt++;
-		}
-		}
-		cprintf("pocet nastavenych %d\n",cnt);
-
-		return PDE_ADDR(*pgdir);
-	}
 	if (!(*pgdir & PTE_P))
 		return ~0;
-	
 	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
 	if (!(p[PTX(va)] & PTE_P))
 		return ~0;

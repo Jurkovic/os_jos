@@ -46,19 +46,21 @@ _paddr(const char *file, int line, void *kva)
 static inline void*
 _kaddr(const char *file, int line, physaddr_t pa)
 {
-	if(rcr4() & CR4_PSE) {
-		if (PGNUMLG(pa) >= npages)
-			_panic(file, line, "KADDR called with invalid pa %08lx", pa);
-		return (void *)(pa + KERNBASE);
-	}
-	else {
-		if (PGNUM(pa) >= npages)
-			_panic(file, line, "KADDR called with invalid pa %08lx", pa);
-		return (void *)(pa + KERNBASE);
-	}
+	if (PGNUM(pa) >= npages)
+		_panic(file, line, "KADDR called with invalid pa %08lx", pa);
+	return (void *)(pa + KERNBASE);
 }
 
 
+/*#define KADDRLG(pa) _kaddrlg(__FILE__, __LINE__, pa)
+
+static inline void*
+_kaddrlg(const char *file, int line, physaddr_t pa)
+{
+	if (PGNUMLG(pa) >= npages)
+		_panic(file, line, "KADDR called with invalid pa %08lx", pa);
+	return (void *)(pa + KERNBASE);
+}*/
 
 
 enum {
@@ -86,30 +88,15 @@ void	user_mem_assert(struct Env *env, const void *va, size_t len, int perm);
 static inline physaddr_t
 page2pa(struct PageInfo *pp)
 {
-	if(rcr4() & CR4_PSE) {
-		return (pp - pages) << PGSHIFTLG;
-	}
-	else{
-		return (pp - pages) << PGSHIFT;
-	} 
-
-
+	return (pp - pages) << PGSHIFT; 
 }
 
 static inline struct PageInfo*
 pa2page(physaddr_t pa)
 {
-	if(rcr4() & CR4_PSE) {
-		if (PGNUMLG(pa) >= npages)
+	if (PGNUM(pa) >= npages)
 			panic("pa2page called with invalid pa");
-		return &pages[PGNUMLG(pa)];
-
-	}
-	else {
-		if (PGNUM(pa) >= npages)
-			panic("pa2page called with invalid pa");
-		return &pages[PGNUM(pa)];
-	}	
+	return &pages[PGNUM(pa)];
 }
 
 static inline void*
@@ -118,6 +105,25 @@ page2kva(struct PageInfo *pp)
 	return KADDR(page2pa(pp));
 }
 
+/*static inline physaddr_t
+lgpage2pa(struct PageInfo *pp) 
+{
+	return (pp - pages) << PGSHIFTLG;
+}
+
+static inline struct PageInfo*
+pa2lgpage(physaddr_t pa) 
+{
+	if (PGNUMLG(pa) >= npages)
+		panic("pa2page called with invalid pa");
+	return &pages[PGNUMLG(pa)];
+}
+
+static inline void*
+lgpage2kva(struct PageInfo *pp)
+{
+	return KADDRLG(lgpage2pa(pp));
+}*/
 
 
 

@@ -35,7 +35,6 @@ i386_init(void)
 	cprintf("6828 decimal is %o octal!\n", 6828);
 
 	// Lab 2 memory management initialization functions
-	uint32_t cr4 = 0;
 	uint32_t eax, ebx, ecx, edx;
 	
 	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info

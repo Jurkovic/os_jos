@@ -21,7 +21,7 @@
 // +----------------+----------------+---------------------+
 //  \--- PDX(la) --/ \--- PTX(la) --/ \---- PGOFF(la) ----/
 //  \---------- PGNUM(la) ----------/
-//                   \----------PGLARGE(la)---------------/
+//                   \----------PDE_ADDR(la)---------------/
 //
 // The PDX, PTX, PGOFF, and PGNUM macros decompose linear addresses as shown.
 // To construct a linear address la from PDX(la), PTX(la), and PGOFF(la),
@@ -81,7 +81,7 @@
 // Address in page table or page directory entry
 #define PTE_ADDR(pte)	((physaddr_t) (pte) & ~0xFFF)
 
-#define PDE_ADDR(pte)	((physaddr_t) (pte) & ~0x3FFFFF)
+#define PDE_ADDR(pte)	((physaddr_t) (pte) & 0xFFC00000)
 
 // Control Register flags
 #define CR0_PE		0x00000001	// Protection Enable
