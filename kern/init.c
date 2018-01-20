@@ -40,6 +40,7 @@ i386_init(void)
 	cpuid(1, &eax, &ebx, &ecx, &edx); //eax nastaveny na 1 info
 	if(edx & CR4_PSE) {
 		pse = 1;
+		lcr4(CR4_PSE);
 	}
 
 	mem_init();

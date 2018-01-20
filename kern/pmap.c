@@ -203,7 +203,6 @@ mem_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
-
 	boot_map_region(kern_pgdir, UENVS, PTSIZE, PADDR(envs), PTE_U | PTE_P);
 
 
@@ -229,18 +228,12 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NO/NE
 	// Your code goes here:
-	if(pse) {
-		lcr4(CR4_PSE);
-	}
-
 	n = (2ULL << 31) - KERNBASE; 
 	boot_map_region_challenge(kern_pgdir, KERNBASE, n, 0, PTE_P | PTE_W | PTE_PS);
 
 	
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
-
-	//lcr3(PADDR(kern_pgdir));
 
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
@@ -265,7 +258,7 @@ mem_init(void)
 	lcr0(cr0);
 
 	// Some more checks, only possible after kern_pgdir is installed.
-	//check_page_installed_pgdir();
+	check_page_installed_pgdir();
 }
 
 // Modify mappings in kern_pgdir to support SMP
@@ -437,7 +430,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 
 	pde_t *pde = &(pgdir[PDX(va)]);
 
-	if(*pde & PTE_PS)
+	if((*pde & PTE_PS) && (rcr4() & CR4_PSE))
 	{	
 		return pde;
 	}
@@ -531,7 +524,7 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 	}
 	pp->pp_ref++; //inkrementovanie referencii
 	if ( *pte & PTE_P ) {
-		if(*pte & PTE_PS) {
+		if((*pte & PTE_PS) && (rcr4() & CR4_PSE)) {
 			if (page2pa(pp) == PDE_ADDR(*pte))
 				pp->pp_ref--;
 			else
@@ -545,7 +538,7 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		}
 	}
 
-	if(*pte & PTE_PS) {
+	if((*pte & PTE_PS) && (rcr4() & CR4_PSE)) {
 		*pte = PDE_ADDR(page2pa(pp)) | (perm & PTE_SYSCALL) | PTE_P;
 	}
 	else {
@@ -576,7 +569,7 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 		*pte_store = pte; //pridaj adresu stranky do pte_store
 	}
 	if(pte != NULL && *pte & PTE_P) {
-		if(*pte & PTE_PS) {
+		if((*pte & PTE_PS) && (rcr4() & CR4_PSE)) {
 			pp = pa2page(PDE_ADDR(*pte)); //nastav novu stranku na prislusnu adresu
 		}
 		else {
@@ -665,7 +658,7 @@ mmio_map_region(physaddr_t pa, size_t size)
 		panic("mmio_map_region: Velkost presahuje MMIOLIM!");
 	}
 	size = ROUNDUP(size,PGSIZE);
-	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD|PTE_PWT|PTE_W | PTE_PS);
+	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD|PTE_PWT|PTE_W);
 
 	base += (uintptr_t)size;
 
