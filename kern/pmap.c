@@ -481,10 +481,17 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 
 static void boot_map_region_challenge(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) 
 {
-	for(uintptr_t i = 0; i < size; i += PGSIZELG) {
-		pde_t *pde = &(pgdir[PDX(va+i)]);
-		*pde = PDE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+	if(rcr4() & CR4_PSE)
+	{
+		for(uintptr_t i = 0; i < size; i += PGSIZELG) {
+			pde_t *pde = &(pgdir[PDX(va+i)]);
+			*pde = PDE_ADDR(pa+i) | (perm & 0xFFF) | PTE_P; //nastav to na co ukazuje pte na fyzicku adresu pa
+		}	
 	}
+	else {
+		boot_map_region(pgdir, va, size, pa, perm & ~PTE_PS);
+	}
+
 }
 
 	

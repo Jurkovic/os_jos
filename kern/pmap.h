@@ -52,17 +52,6 @@ _kaddr(const char *file, int line, physaddr_t pa)
 }
 
 
-/*#define KADDRLG(pa) _kaddrlg(__FILE__, __LINE__, pa)
-
-static inline void*
-_kaddrlg(const char *file, int line, physaddr_t pa)
-{
-	if (PGNUMLG(pa) >= npages)
-		_panic(file, line, "KADDR called with invalid pa %08lx", pa);
-	return (void *)(pa + KERNBASE);
-}*/
-
-
 enum {
 	// For page_alloc, zero the returned physical page.
 	ALLOC_ZERO = 1<<0,
@@ -104,27 +93,6 @@ page2kva(struct PageInfo *pp)
 {
 	return KADDR(page2pa(pp));
 }
-
-/*static inline physaddr_t
-lgpage2pa(struct PageInfo *pp) 
-{
-	return (pp - pages) << PGSHIFTLG;
-}
-
-static inline struct PageInfo*
-pa2lgpage(physaddr_t pa) 
-{
-	if (PGNUMLG(pa) >= npages)
-		panic("pa2page called with invalid pa");
-	return &pages[PGNUMLG(pa)];
-}
-
-static inline void*
-lgpage2kva(struct PageInfo *pp)
-{
-	return KADDRLG(lgpage2pa(pp));
-}*/
-
 
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);

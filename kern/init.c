@@ -120,6 +120,10 @@ boot_aps(void)
 void
 mp_main(void)
 {
+	if(pse) {
+		lcr4(CR4_PSE);
+	} 
+
 	// We are in high EIP now, safe to switch to kern_pgdir 
 	lcr3(PADDR(kern_pgdir));
 	cprintf("SMP: CPU %d starting\n", cpunum());
